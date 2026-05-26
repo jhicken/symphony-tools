@@ -36,7 +36,7 @@ let originalTbody = null;
 let customTbody = null;
 let stashedPagination = [];
 let observer = null;
-let pollInterval = null;
+let mainObserver = null;
 let isApplyingDomChange = false;
 
 const WATCHLIST_CACHE_TTL = 5 * 60 * 1000;
@@ -750,36 +750,52 @@ function setupObserver(table) {
   observer.observe(table, { childList: true, subtree: false });
 }
 
-let tickCount = 0;
 let cachedTable = null;
-function tick() {
-  tickCount++;
-  // Reuse the cached table if it's still in the DOM — avoids scanning all
-  // tables + their thead textContent every second.
-  if (!cachedTable || !cachedTable.isConnected) {
-    cachedTable = getWatchlistTable();
+
+function isOnWatchlistPage() {
+  return window.location.pathname === "/watch";
+}
+
+function tryAttachToTable() {
+  if (!isOnWatchlistPage()) return false;
+  const table = getWatchlistTable();
+  if (!table) return false;
+  if (cachedTable && cachedTable !== table && observer) {
+    observer.disconnect();
+    observer = null;
   }
-  const table = cachedTable;
-  if (!table) {
-    if (tickCount === 5 || tickCount === 30) {
-      log(
-        `[watchlistSort] tick ${tickCount}: no watchlist table yet (path=${location.pathname})`
-      );
-    }
-    return;
-  }
+  cachedTable = table;
   ensureShowAllButton(table);
   ensureTodaysChangeArrow(table);
   attachHeaderClickHandlers(table);
   setupObserver(table);
+  return true;
+}
+
+function startMainObserver() {
+  if (mainObserver) return;
+  const root = document.querySelector("main") || document.body;
+  mainObserver = new MutationObserver(() => {
+    if (!isOnWatchlistPage()) return;
+    if (cachedTable && cachedTable.isConnected) return;
+    tryAttachToTable();
+  });
+  mainObserver.observe(root, { childList: true, subtree: true });
 }
 
 export function initWatchlistSortModule() {
   log("[watchlistSort] module init");
-  if (pollInterval) clearInterval(pollInterval);
-  pollInterval = setInterval(tick, 1000);
+
+  tryAttachToTable();
+  startMainObserver();
+
+  window.navigation?.addEventListener("navigate", (event) => {
+    if (!event.destination.url?.includes("/watch")) return;
+    setTimeout(tryAttachToTable, 100);
+  });
+
   window.addEventListener("unload", () => {
-    if (pollInterval) clearInterval(pollInterval);
+    if (mainObserver) mainObserver.disconnect();
     if (observer) observer.disconnect();
   });
 }
