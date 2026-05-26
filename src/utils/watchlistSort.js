@@ -287,6 +287,24 @@ function findDisplayDropdown() {
   return null;
 }
 
+// Walk up from `el` looking for an ancestor that lays its children out
+// horizontally. Needed because Composer wraps the Display dropdown in a
+// vertical flex column, so inserting our button as an immediate sibling
+// stacks it above Display instead of beside it.
+function findHorizontalRowAncestor(el, maxDepth = 8) {
+  let cur = el?.parentElement;
+  for (let i = 0; i < maxDepth && cur; i++) {
+    const cs = getComputedStyle(cur);
+    const isFlex = cs.display === "flex" || cs.display === "inline-flex";
+    if (isFlex) {
+      const dir = cs.flexDirection || "row";
+      if (dir === "row" || dir === "row-reverse") return cur;
+    }
+    cur = cur.parentElement;
+  }
+  return null;
+}
+
 function ensureShowAllButton(table) {
   let btn = document.getElementById("cqt-show-all-btn");
   if (btn && btn.isConnected) {
@@ -318,9 +336,20 @@ function ensureShowAllButton(table) {
   });
 
   // Preferred placement: immediately to the LEFT of Composer's "Display"
-  // dropdown in the top-right controls row.
+  // dropdown in the top-right controls row. Walk up to the nearest horizontal
+  // flex ancestor first — Composer's new UI wraps Display in a column-axis
+  // container, so a direct insertBefore stacks our button above it.
   const displayBtn = findDisplayDropdown();
-  if (displayBtn && displayBtn.parentNode) {
+  const row = displayBtn ? findHorizontalRowAncestor(displayBtn) : null;
+  if (row) {
+    // Find the direct child of `row` that contains the Display button, then
+    // insert our button as its previous sibling — stays inline with Display.
+    let displayChild = displayBtn;
+    while (displayChild.parentNode && displayChild.parentNode !== row) {
+      displayChild = displayChild.parentNode;
+    }
+    row.insertBefore(btn, displayChild);
+  } else if (displayBtn && displayBtn.parentNode) {
     displayBtn.parentNode.insertBefore(btn, displayBtn);
   } else {
     // Fallback: floating toolbar above the table
