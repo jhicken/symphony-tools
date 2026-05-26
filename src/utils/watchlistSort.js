@@ -658,42 +658,6 @@ function applyClientSort() {
   });
 }
 
-function perPageSortTodaysChange(table) {
-  const tbody = table.querySelector("tbody:not([data-cqt-custom-tbody])");
-  if (!tbody) return;
-  const headers = Array.from(table.querySelectorAll("thead th"));
-  const idx = headers.findIndex((th) => TODAYS_CHANGE_RE.test(th.textContent || ""));
-  if (idx < 0) return;
-
-  const rows = Array.from(tbody.children).filter((r) => r.tagName === "TR");
-  const parse = (txt) => {
-    const t = (txt || "").trim();
-    if (!t || t === "-" || t === "—") return null;
-    const down = t.includes("↓");
-    const n = parseFloat(t.replace(/[↑↓%+\s,]/g, ""));
-    if (isNaN(n)) return null;
-    return down && n > 0 ? -n : n;
-  };
-  const dir = currentSortDir === "asc" ? 1 : -1;
-  rows.sort((a, b) => {
-    const va = parse(a.querySelectorAll(":scope > td")[idx]?.textContent);
-    const vb = parse(b.querySelectorAll(":scope > td")[idx]?.textContent);
-    if (va === null && vb === null) return 0;
-    if (va === null) return 1;
-    if (vb === null) return -1;
-    return dir * (va - vb);
-  });
-
-  isApplyingDomChange = true;
-  try {
-    rows.forEach((r) => tbody.appendChild(r));
-  } finally {
-    setTimeout(() => {
-      isApplyingDomChange = false;
-    }, 200);
-  }
-}
-
 // ---------------------------------------------------------------------------
 // Header click wiring
 // ---------------------------------------------------------------------------
