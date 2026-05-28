@@ -441,7 +441,7 @@ async function activateShowAll(table) {
     watchlist = await fetchWatchlist();
   } catch (e) {
     log("[watchlistSort] watchlist fetch failed:", e);
-    showBanner(table, `Could not load watchlist: ${e.message}`);
+    showBanner(table, "Could not load watchlist. Try refreshing the page.");
     return;
   }
 
@@ -451,7 +451,7 @@ async function activateShowAll(table) {
     quotes = await fetchQuotes(tickers);
   } catch (e) {
     log("[watchlistSort] quotes fetch failed:", e);
-    showBanner(table, `Could not load quotes: ${e.message}`);
+    showBanner(table, "Could not load quotes. Try refreshing the page.");
     return;
   }
 
@@ -501,7 +501,6 @@ function deactivateShowAll() {
   customTbody = null;
   originalTbody = null;
   showAllActive = false;
-  currentSortKey = null;
   updateShowAllButtonLabel();
   const table = getWatchlistTable();
   if (table) updateActiveArrowOnNativeHeaders(table);

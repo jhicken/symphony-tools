@@ -8,13 +8,48 @@
 
 import { log } from "./logger.js";
 
-let pollInterval = null;
-let observer = null;
+let mainObserver = null;
+let tbodyObserver = null;
+let cachedTable = null;
 let currentTable = null;
 let deleteInProgress = false;
 
 // The exact SVG path Composer uses for the trash icon (from user-supplied HTML)
 const TRASH_PATH_SIG = "M216,48H176";
+
+function isOnDraftsPage() {
+  return window.location.pathname === "/drafts";
+}
+
+function isVisible(el) {
+  if (!el?.isConnected) return false;
+  const style = getComputedStyle(el);
+  if (style.display === "none" || style.visibility === "hidden" || style.opacity === "0") {
+    return false;
+  }
+  const rect = el.getBoundingClientRect();
+  return rect.width > 0 || rect.height > 0;
+}
+
+function findVisibleDialogRoots() {
+  const roots = [];
+  document.querySelectorAll('[role="dialog"], [aria-modal="true"]').forEach((el) => {
+    if (isVisible(el)) roots.push(el);
+  });
+  return roots;
+}
+
+function findVisibleButtonInRoots(roots, label) {
+  const want = label.toLowerCase();
+  for (const root of roots) {
+    for (const btn of root.querySelectorAll("button")) {
+      if (!isVisible(btn)) continue;
+      const txt = (btn.textContent || "").trim().toLowerCase();
+      if (txt === want) return btn;
+    }
+  }
+  return null;
+}
 
 // ---------------------------------------------------------------------------
 // Detection
@@ -252,13 +287,11 @@ function selectCopyOfDrafts(table) {
   if (!tbody) return;
   let matched = 0;
   let scanned = 0;
-  const samples = [];
   tbody.querySelectorAll(":scope > tr").forEach((row) => {
     const cb = row.querySelector("input.cqt-row-checkbox");
     if (!cb) return;
     scanned++;
     const name = getRowName(row);
-    if (samples.length < 3) samples.push(name);
     if (!name) return;
     const lower = name.toLowerCase();
     if (lower.startsWith("save")) return;
@@ -267,14 +300,12 @@ function selectCopyOfDrafts(table) {
       matched++;
     }
   });
-  log(
-    `[draftsBulkDelete] select-copy: scanned=${scanned} matched=${matched} sample-names=${JSON.stringify(samples)}`
-  );
+  log(`[draftsBulkDelete] select-copy: scanned=${scanned} matched=${matched}`);
   updateDeleteButtonLabel();
   setStatus(
     matched > 0
       ? `Selected ${matched} "Copy of…" drafts`
-      : `No "Copy of…" drafts found (scanned ${scanned} rows — check console for samples)`
+      : `No "Copy of…" drafts found (scanned ${scanned} rows)`
   );
 }
 
@@ -297,21 +328,32 @@ async function waitFor(predicate, timeoutMs = 2000, intervalMs = 50) {
 }
 
 function findYesDeleteButton() {
-  // Find a visible button with text "Yes, delete"
-  const buttons = document.querySelectorAll("button");
-  for (const btn of buttons) {
+  const dialogs = findVisibleDialogRoots();
+  if (dialogs.length) {
+    const inDialog = findVisibleButtonInRoots(dialogs, "yes, delete");
+    if (inDialog) return inDialog;
+  }
+  // Fallback when Composer omits role="dialog" on the confirm layer
+  for (const btn of document.querySelectorAll("button")) {
+    if (!isVisible(btn)) continue;
     const txt = (btn.textContent || "").trim().toLowerCase();
     if (txt === "yes, delete") return btn;
   }
   return null;
 }
 
-// Find and dismiss Composer's "Something went wrong" error popup.
+// Dismiss Composer's delete error dialog only (scoped to visible modals).
 function dismissErrorPopup() {
-  const buttons = document.querySelectorAll("button");
-  for (const btn of buttons) {
-    const t = (btn.textContent || "").trim().toLowerCase();
-    if (t === "no, don't delete" || t === "cancel" || t === "close") {
+  for (const root of findVisibleDialogRoots()) {
+    const text = (root.textContent || "").toLowerCase();
+    if (!text.includes("something went wrong") && !text.includes("went wrong")) {
+      continue;
+    }
+    const btn =
+      findVisibleButtonInRoots([root], "no, don't delete") ||
+      findVisibleButtonInRoots([root], "cancel") ||
+      findVisibleButtonInRoots([root], "close");
+    if (btn) {
       btn.click();
       return true;
     }
@@ -401,9 +443,7 @@ async function runBulkDelete(table) {
     const result = await deleteOneBySymphonyId(table, entry);
     if (!result.ok) {
       failed++;
-      log(
-        `[draftsBulkDelete] failed: id=${entry.id} "${entry.name}"  reason=${result.reason}`
-      );
+      log(`[draftsBulkDelete] failed: id=${entry.id} reason=${result.reason}`);
     }
   }
 
@@ -421,35 +461,78 @@ async function runBulkDelete(table) {
 // Wiring
 // ---------------------------------------------------------------------------
 
-function tick() {
-  const table = getDraftsTable();
-  if (!table) return;
+function removeToolbar() {
+  document.getElementById("cqt-drafts-toolbar")?.remove();
+}
 
+function detachFromTable() {
+  if (tbodyObserver) {
+    tbodyObserver.disconnect();
+    tbodyObserver = null;
+  }
+  cachedTable = null;
+  currentTable = null;
+}
+
+function setupTbodyObserver(table) {
+  if (tbodyObserver) return;
+  const tbody = table.querySelector("tbody");
+  if (!tbody) return;
+  tbodyObserver = new MutationObserver(() => {
+    if (deleteInProgress) return;
+    ensureCheckboxColumn(table);
+    updateDeleteButtonLabel();
+  });
+  tbodyObserver.observe(tbody, { childList: true, subtree: false });
+}
+
+function tryAttachToTable() {
+  if (!isOnDraftsPage()) return false;
+  const table = getDraftsTable();
+  if (!table) return false;
+
+  if (cachedTable && cachedTable !== table) {
+    detachFromTable();
+  }
+
+  cachedTable = table;
   currentTable = table;
   ensureToolbar(table);
   ensureCheckboxColumn(table);
   updateDeleteButtonLabel();
+  setupTbodyObserver(table);
+  return true;
+}
 
-  if (!observer) {
-    // Re-inject checkboxes after React re-renders rows (e.g. after deletes)
-    observer = new MutationObserver(() => {
-      if (deleteInProgress) return;
-      ensureCheckboxColumn(table);
-      updateDeleteButtonLabel();
-    });
-    observer.observe(table.querySelector("tbody") || table, {
-      childList: true,
-      subtree: false,
-    });
-  }
+function startMainObserver() {
+  if (mainObserver) return;
+  const root = document.querySelector("main") || document.body;
+  mainObserver = new MutationObserver(() => {
+    if (!isOnDraftsPage()) {
+      detachFromTable();
+      removeToolbar();
+      return;
+    }
+    if (cachedTable && cachedTable.isConnected) return;
+    tryAttachToTable();
+  });
+  mainObserver.observe(root, { childList: true, subtree: true });
 }
 
 export function initDraftsBulkDeleteModule() {
   log("[draftsBulkDelete] module init");
-  if (pollInterval) clearInterval(pollInterval);
-  pollInterval = setInterval(tick, 1000);
+
+  tryAttachToTable();
+  startMainObserver();
+
+  window.navigation?.addEventListener("navigate", (event) => {
+    if (!event.destination.url?.includes("/drafts")) return;
+    setTimeout(tryAttachToTable, 100);
+  });
+
   window.addEventListener("unload", () => {
-    if (pollInterval) clearInterval(pollInterval);
-    if (observer) observer.disconnect();
+    if (mainObserver) mainObserver.disconnect();
+    detachFromTable();
+    removeToolbar();
   });
 }
