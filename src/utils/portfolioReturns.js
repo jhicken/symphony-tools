@@ -1,4 +1,5 @@
-import { getTokenAndAccount, fetchPortfolioHistory, fetchAchTransfers } from "../apiService.js";
+import { getTokenAndAccount, fetchPortfolioHistory, fetchAchTransfers, performanceData } from "../apiService.js";
+import { getSymphonyPerformanceInfo } from "./portfolioTable.js";
 import { log } from "./logger.js";
 import {
   sumNetDeposits,
@@ -6,6 +7,7 @@ import {
   getMetricGrid,
   isNewPortfolioStatsLayout,
   createStatTile,
+  clampTooltipToViewport,
   injectCagrWithTooltip,
   calculateCagrStats,
   calculateActiveCagr,
@@ -139,6 +141,7 @@ function createYtdReturnsTooltip(stats, anchorRect, ytdReturnElement) {
   if (anchorRect) {
     tooltip.style.left = `${anchorRect.right + 12}px`;
     tooltip.style.top = `${anchorRect.top - 8}px`;
+    clampTooltipToViewport(tooltip, anchorRect);
   }
 
   let isOverTooltip = false;
@@ -186,10 +189,13 @@ function injectYtdReturnWithTooltip({
     return;
   }
 
-  grid.querySelectorAll('.composer-returns-stat:not(.composer-cagr-stat)').forEach(el => el.remove());
+  grid.querySelectorAll('.composer-ytd-stat, .composer-returns-stat:not(.composer-cagr-stat):not(.composer-active-cagr-stat)').forEach(el => el.remove());
 
   const isNewLayout = isNewPortfolioStatsLayout(banner);
-  const { wrapper, valueEl: valueDiv } = createStatTile('YTD Return', { isNewLayout });
+  const { wrapper, valueEl: valueDiv } = createStatTile('YTD Return', {
+    extraClass: 'composer-ytd-stat',
+    isNewLayout,
+  });
   wrapper.style.cursor = 'pointer';
   valueDiv.textContent = `${(ytdReturn * 100).toFixed(2)}%`;
 
@@ -249,8 +255,9 @@ async function waitForMetricBannerAndInject(ytdStats, cagrStats, timeoutMs = 100
     function check() {
       const banner = findMetricBanner();
       const grid = getMetricGrid(banner);
-      const hasCumulativeReturn = grid && Array.from(grid.children).some(
-        child => child.textContent.includes('Cumulative Return')
+      const hasCumulativeReturn = grid && (
+        grid.textContent.includes('Cumulative Return') ||
+        Array.from(grid.children).some(child => child.textContent.includes('Cumulative Return'))
       );
       if (banner && grid && hasCumulativeReturn) {
         setTimeout(() => {
@@ -329,10 +336,24 @@ export async function logPortfolioReturns() {
 
   let cagrStats = null;
   if (enableCagrReturns) {
+    injectActiveCagrLoadingPlaceholder();
     cagrStats = calculateCagrStats(history, allTransfers);
   }
 
   if (ytdStats || cagrStats) {
     await waitForMetricBannerAndInject(ytdStats, cagrStats);
+  }
+
+  if (enableCagrReturns) {
+    const hasSymphonyData = performanceData?.symphonyStats?.symphonies?.length > 0;
+    if (hasSymphonyData) {
+      const stats = calculateActiveCagr();
+      if (stats) injectActiveCagrWithTooltip(stats);
+    } else {
+      getSymphonyPerformanceInfo({ skipCache: false }).then(() => {
+        const stats = calculateActiveCagr();
+        if (stats) injectActiveCagrWithTooltip(stats);
+      }).catch(e => log('Active CAGR fetch error:', e));
+    }
   }
 }

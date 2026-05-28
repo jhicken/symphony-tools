@@ -27,8 +27,46 @@ function setStoredCagrAdjustment(val) {
   localStorage.setItem(CAGR_ADJUSTMENT_KEY, String(val));
 }
 
+export function clampTooltipToViewport(tooltip, anchorRect) {
+  if (!tooltip || !anchorRect) return;
+  setTimeout(() => {
+    let tooltipRect = tooltip.getBoundingClientRect();
+    if (tooltipRect.right > window.innerWidth - 10) {
+      tooltip.style.left = `${anchorRect.left - tooltipRect.width - 12}px`;
+      tooltipRect = tooltip.getBoundingClientRect();
+    }
+    if (tooltipRect.left < 10) {
+      tooltip.style.left = '10px';
+    }
+    if (tooltipRect.bottom > window.innerHeight - 10) {
+      tooltip.style.top = `${Math.max(10, window.innerHeight - tooltipRect.height - 10)}px`;
+    }
+  }, 0);
+}
+
+export function waitForMetricBanner(timeoutMs = 10000, pollMs = 100) {
+  const start = Date.now();
+  return new Promise((resolve) => {
+    function check() {
+      const banner = findMetricBanner();
+      const grid = getMetricGrid(banner);
+      const ready = grid && (
+        grid.textContent.includes('Cumulative Return') ||
+        Array.from(grid.children).some(child => child.textContent.includes('Cumulative Return'))
+      );
+      if (banner && grid && ready) return resolve(banner);
+      if (Date.now() - start < timeoutMs) {
+        setTimeout(check, pollMs);
+      } else {
+        resolve(null);
+      }
+    }
+    check();
+  });
+}
+
 export function findMetricBanner() {
-  const panel = document.querySelector('aside[data-testid="portfolio-stats-panel"]');
+  const panel = document.querySelector('[data-testid="portfolio-stats-panel"]');
   if (panel) {
     const sections = panel.querySelectorAll('section');
     for (const sec of sections) {
@@ -75,7 +113,7 @@ export function findMetricBanner() {
 }
 
 export function isNewPortfolioStatsLayout(banner) {
-  return !!banner && !!banner.closest && !!banner.closest('aside[data-testid="portfolio-stats-panel"]');
+  return !!banner && !!banner.closest && !!banner.closest('[data-testid="portfolio-stats-panel"]');
 }
 
 export function getMetricGrid(banner) {
@@ -492,15 +530,7 @@ function createActiveCagrTooltip(stats, anchorRect) {
     tooltip.style.left = `${anchorRect.right + 12}px`;
     tooltip.style.top = `${anchorRect.top - 8}px`;
 
-    setTimeout(() => {
-      const tooltipRect = tooltip.getBoundingClientRect();
-      if (tooltipRect.right > window.innerWidth - 10) {
-        tooltip.style.left = `${anchorRect.left - tooltipRect.width - 12}px`;
-      }
-      if (tooltipRect.bottom > window.innerHeight - 10) {
-        tooltip.style.top = `${window.innerHeight - tooltipRect.height - 10}px`;
-      }
-    }, 0);
+    clampTooltipToViewport(tooltip, anchorRect);
   }
 
   setTimeout(() => { tooltip.style.opacity = '1'; }, 0);
@@ -508,23 +538,7 @@ function createActiveCagrTooltip(stats, anchorRect) {
   return tooltip;
 }
 
-export function injectActiveCagrLoadingPlaceholder() {
-  const banner = findMetricBanner();
-  if (!banner) return;
-
-  const grid = getMetricGrid(banner);
-  if (!grid) return;
-
-  if (grid.querySelector('.composer-active-cagr-stat')) return;
-
-  const isNewLayout = isNewPortfolioStatsLayout(banner);
-  const { wrapper, valueEl } = createStatTile('Active CAGR', {
-    extraClass: 'composer-active-cagr-stat',
-    isNewLayout,
-  });
-  valueEl.style.opacity = '0.5';
-  valueEl.textContent = 'Loading...';
-
+function appendActiveCagrStat(grid, wrapper) {
   const existingCagr = grid.querySelector('.composer-cagr-stat');
   if (existingCagr && existingCagr.nextSibling) {
     grid.insertBefore(wrapper, existingCagr.nextSibling);
@@ -533,6 +547,39 @@ export function injectActiveCagrLoadingPlaceholder() {
   } else {
     grid.appendChild(wrapper);
   }
+}
+
+export function injectActiveCagrLoadingPlaceholder() {
+  const banner = findMetricBanner();
+  if (banner) {
+    const grid = getMetricGrid(banner);
+    if (!grid || grid.querySelector('.composer-active-cagr-stat')) return;
+
+    const isNewLayout = isNewPortfolioStatsLayout(banner);
+    const { wrapper, valueEl } = createStatTile('Active CAGR', {
+      extraClass: 'composer-active-cagr-stat',
+      isNewLayout,
+    });
+    valueEl.style.opacity = '0.5';
+    valueEl.textContent = 'Loading...';
+    appendActiveCagrStat(grid, wrapper);
+    return;
+  }
+
+  waitForMetricBanner().then((retryBanner) => {
+    if (!retryBanner) return;
+    const grid = getMetricGrid(retryBanner);
+    if (!grid || grid.querySelector('.composer-active-cagr-stat')) return;
+
+    const isNewLayout = isNewPortfolioStatsLayout(retryBanner);
+    const { wrapper, valueEl } = createStatTile('Active CAGR', {
+      extraClass: 'composer-active-cagr-stat',
+      isNewLayout,
+    });
+    valueEl.style.opacity = '0.5';
+    valueEl.textContent = 'Loading...';
+    appendActiveCagrStat(grid, wrapper);
+  });
 }
 
 export function injectActiveCagrWithTooltip(stats) {
@@ -593,6 +640,7 @@ export function injectActiveCagrWithTooltip(stats) {
       const rect = wrapper.getBoundingClientRect();
       tooltip.style.left = `${rect.right + 12}px`;
       tooltip.style.top = `${rect.top - 8}px`;
+      clampTooltipToViewport(tooltip, rect);
       return;
     }
     tooltip = createActiveCagrTooltip(stats, wrapper.getBoundingClientRect());
@@ -628,14 +676,7 @@ export function injectActiveCagrWithTooltip(stats) {
     }, 150);
   });
 
-  const existingCagr = grid.querySelector('.composer-cagr-stat');
-  if (existingCagr && existingCagr.nextSibling) {
-    grid.insertBefore(wrapper, existingCagr.nextSibling);
-  } else if (existingCagr) {
-    grid.appendChild(wrapper);
-  } else {
-    grid.appendChild(wrapper);
-  }
+  appendActiveCagrStat(grid, wrapper);
 }
 
 export function injectCagrWithTooltip(stats) {
