@@ -7,7 +7,8 @@
     "setup": "npm run download-resources",
     "build:major": "npm run setup && node bin/build.js major",
     "build:minor": "npm run setup && node bin/build.js minor",
-    "build:patch": "npm run setup && node bin/build.js patch"
+    "build:patch": "npm run setup && node bin/build.js patch",
+    "build:zip": "npm run setup && node bin/build.js zip"
   },
   "devDependencies": {
     "adm-zip": "^0.5.12",

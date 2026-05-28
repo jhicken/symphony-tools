@@ -56,11 +56,21 @@ const createGitTagAndPushNewCommit = async (version) => {
 }
 
 (async () => {
-    const releaseType = process.argv[2]
+    const args = process.argv.slice(2)
+    const releaseType = args.find((arg) => !arg.startsWith('--'))
+    const skipGitPush = args.includes('--no-push')
     const packageJson = readJSON('../package.json')
+
+    if (releaseType === 'zip') {
+        createZipArchive(packageJson.name, packageJson.version)
+        return
+    }
+
     const newVersion = incrementVersion(packageJson.version, releaseType)
     updateExtensionVersion(newVersion)
     await updatePackageVersion(newVersion, packageJson)
     createZipArchive(packageJson.name, newVersion)
-    await createGitTagAndPushNewCommit(newVersion)
+    if (!skipGitPush) {
+        await createGitTagAndPushNewCommit(newVersion)
+    }
 })()
