@@ -34,7 +34,7 @@ export const startPortfolioTableInterval = async () => {
     const view = urlParams.get('view');
     if (window.location.pathname !== "/portfolio" || (view && view !== 'symphonies')) return;
     const mainTable = document.querySelector("main :not(.tv-lightweight-charts) > table");
-    const portfolioChart = document.querySelector('[data-highcharts-chart], .border-graph-axislines');
+    const portfolioChart = document.querySelector('[data-highcharts-chart], .border-graph-axislines, .tv-lightweight-charts');
     const mainTableContent = document.querySelectorAll("main :not(.tv-lightweight-charts) > table td");
     if (!mainTable) return;
     if (mainTable.classList.contains('composer-quant-tools-initialized')) {

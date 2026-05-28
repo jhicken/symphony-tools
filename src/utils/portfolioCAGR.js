@@ -28,6 +28,21 @@ function setStoredCagrAdjustment(val) {
 }
 
 export function findMetricBanner() {
+  const panel = document.querySelector('aside[data-testid="portfolio-stats-panel"]');
+  if (panel) {
+    const sections = panel.querySelectorAll('section');
+    for (const sec of sections) {
+      if (/Cumulative Return|Annualized Return|Sharpe Ratio|Max Drawdown/.test(sec.textContent)) {
+        log('Found metric banner via portfolio-stats-panel aside');
+        return sec;
+      }
+    }
+    if (sections.length > 1) {
+      log('Found metric banner via portfolio-stats-panel aside (fallback section)');
+      return sections[sections.length - 1];
+    }
+  }
+
   const selectors = [
     '.metric-banner',
     '[class*="metric"]',
@@ -57,6 +72,39 @@ export function findMetricBanner() {
   }
 
   return null;
+}
+
+export function isNewPortfolioStatsLayout(banner) {
+  return !!banner && !!banner.closest && !!banner.closest('aside[data-testid="portfolio-stats-panel"]');
+}
+
+export function getMetricGrid(banner) {
+  if (!banner) return null;
+  if (isNewPortfolioStatsLayout(banner)) return banner;
+  if (banner.classList && banner.classList.contains('grid')) return banner;
+  return banner.querySelector('.grid');
+}
+
+export function createStatTile(label, { extraClass = '', isNewLayout = false } = {}) {
+  const wrapper = document.createElement('div');
+  let labelEl, valueEl;
+  if (isNewLayout) {
+    wrapper.className = `flex flex-col pb-2 border-b border-white/20 w-[155px] composer-returns-stat ${extraClass}`.trim();
+    labelEl = document.createElement('span');
+    labelEl.className = 'text-xs leading-4 text-light-soft';
+    valueEl = document.createElement('span');
+    valueEl.className = 'text-sm font-medium leading-5 text-light tabular-nums';
+  } else {
+    wrapper.className = `md:first:pl-2 composer-returns-stat ${extraClass}`.trim();
+    labelEl = document.createElement('div');
+    labelEl.className = 'flex text-xs text-light-soft mb-1 gap-x-1 items-center';
+    valueEl = document.createElement('div');
+    valueEl.className = 'text-white text-2xl leading-none';
+  }
+  labelEl.textContent = label;
+  wrapper.appendChild(labelEl);
+  wrapper.appendChild(valueEl);
+  return { wrapper, labelEl, valueEl };
 }
 
 function createCagrTooltip(stats, anchorRect, cagrValueElement) {
@@ -464,22 +512,18 @@ export function injectActiveCagrLoadingPlaceholder() {
   const banner = findMetricBanner();
   if (!banner) return;
 
-  const grid = banner.classList.contains('grid') ? banner : banner.querySelector('.grid');
+  const grid = getMetricGrid(banner);
   if (!grid) return;
 
   if (grid.querySelector('.composer-active-cagr-stat')) return;
 
-  const wrapper = document.createElement('div');
-  wrapper.className = 'md:first:pl-2 composer-active-cagr-stat composer-returns-stat';
-  const labelDiv = document.createElement('div');
-  labelDiv.className = 'flex text-xs text-light-soft mb-1 gap-x-1 items-center';
-  labelDiv.textContent = 'Active CAGR';
-  const valueDiv = document.createElement('div');
-  valueDiv.className = 'text-white text-2xl leading-none';
-  valueDiv.style.opacity = '0.5';
-  valueDiv.textContent = 'Loading...';
-  wrapper.appendChild(labelDiv);
-  wrapper.appendChild(valueDiv);
+  const isNewLayout = isNewPortfolioStatsLayout(banner);
+  const { wrapper, valueEl } = createStatTile('Active CAGR', {
+    extraClass: 'composer-active-cagr-stat',
+    isNewLayout,
+  });
+  valueEl.style.opacity = '0.5';
+  valueEl.textContent = 'Loading...';
 
   const existingCagr = grid.querySelector('.composer-cagr-stat');
   if (existingCagr && existingCagr.nextSibling) {
@@ -501,7 +545,7 @@ export function injectActiveCagrWithTooltip(stats) {
     log('Could not find metric banner for Active CAGR injection');
     return;
   }
-  const grid = banner.classList.contains('grid') ? banner : banner.querySelector('.grid');
+  const grid = getMetricGrid(banner);
   if (!grid) {
     log('Could not find grid in metric banner for Active CAGR');
     return;
@@ -509,14 +553,12 @@ export function injectActiveCagrWithTooltip(stats) {
 
   grid.querySelectorAll('.composer-active-cagr-stat').forEach(el => el.remove());
 
-  const wrapper = document.createElement('div');
-  wrapper.className = 'md:first:pl-2 composer-active-cagr-stat composer-returns-stat';
+  const isNewLayout = isNewPortfolioStatsLayout(banner);
+  const { wrapper, valueEl: valueDiv } = createStatTile('Active CAGR', {
+    extraClass: 'composer-active-cagr-stat',
+    isNewLayout,
+  });
   wrapper.style.cursor = 'pointer';
-  const labelDiv = document.createElement('div');
-  labelDiv.className = 'flex text-xs text-light-soft mb-1 gap-x-1 items-center';
-  labelDiv.textContent = 'Active CAGR';
-  const valueDiv = document.createElement('div');
-  valueDiv.className = 'text-white text-2xl leading-none';
 
   if (hasValidCagr) {
     const cagrValue = stats.activeCagr * 100;
@@ -531,9 +573,6 @@ export function injectActiveCagrWithTooltip(stats) {
     valueDiv.style.opacity = '0.5';
     valueDiv.title = `No symphonies with >${stats.minDays} trading days`;
   }
-
-  wrapper.appendChild(labelDiv);
-  wrapper.appendChild(valueDiv);
 
   let isOverActiveCagr = false;
   let tooltip = null;
@@ -607,7 +646,7 @@ export function injectCagrWithTooltip(stats) {
     log('Could not find metric banner for CAGR injection');
     return;
   }
-  const grid = banner.classList.contains('grid') ? banner : banner.querySelector('.grid');
+  const grid = getMetricGrid(banner);
   if (!grid) {
     log('Could not find grid in metric banner');
     return;
@@ -615,17 +654,13 @@ export function injectCagrWithTooltip(stats) {
 
   grid.querySelectorAll('.composer-cagr-stat').forEach(el => el.remove());
 
-  const wrapper = document.createElement('div');
-  wrapper.className = 'md:first:pl-2 composer-cagr-stat composer-returns-stat';
+  const isNewLayout = isNewPortfolioStatsLayout(banner);
+  const { wrapper, valueEl: valueDiv } = createStatTile('Portfolio CAGR', {
+    extraClass: 'composer-cagr-stat',
+    isNewLayout,
+  });
   wrapper.style.cursor = 'pointer';
-  const labelDiv = document.createElement('div');
-  labelDiv.className = 'flex text-xs text-light-soft mb-1 gap-x-1 items-center';
-  labelDiv.textContent = 'Portfolio CAGR';
-  const valueDiv = document.createElement('div');
-  valueDiv.className = 'text-white text-2xl leading-none';
   valueDiv.textContent = `${(stats.cagr * 100).toFixed(2)}%`;
-  wrapper.appendChild(labelDiv);
-  wrapper.appendChild(valueDiv);
 
   let isOverCagr = false;
   let tooltip = null;

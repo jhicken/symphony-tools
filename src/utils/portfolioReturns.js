@@ -3,6 +3,9 @@ import { log } from "./logger.js";
 import {
   sumNetDeposits,
   findMetricBanner,
+  getMetricGrid,
+  isNewPortfolioStatsLayout,
+  createStatTile,
   injectCagrWithTooltip,
   calculateCagrStats,
   calculateActiveCagr,
@@ -177,7 +180,7 @@ function injectYtdReturnWithTooltip({
     log('Could not find metric banner for YTD injection');
     return;
   }
-  const grid = banner.classList.contains('grid') ? banner : banner.querySelector('.grid');
+  const grid = getMetricGrid(banner);
   if (!grid) {
     log('Could not find grid in metric banner for YTD');
     return;
@@ -185,17 +188,10 @@ function injectYtdReturnWithTooltip({
 
   grid.querySelectorAll('.composer-returns-stat:not(.composer-cagr-stat)').forEach(el => el.remove());
 
-  const wrapper = document.createElement('div');
-  wrapper.className = 'md:first:pl-2 composer-returns-stat';
+  const isNewLayout = isNewPortfolioStatsLayout(banner);
+  const { wrapper, valueEl: valueDiv } = createStatTile('YTD Return', { isNewLayout });
   wrapper.style.cursor = 'pointer';
-  const labelDiv = document.createElement('div');
-  labelDiv.className = 'flex text-xs text-light-soft mb-1 gap-x-1 items-center';
-  labelDiv.textContent = 'YTD Return';
-  const valueDiv = document.createElement('div');
-  valueDiv.className = 'text-white text-2xl leading-none';
   valueDiv.textContent = `${(ytdReturn * 100).toFixed(2)}%`;
-  wrapper.appendChild(labelDiv);
-  wrapper.appendChild(valueDiv);
 
   let isOverYtd = false;
   let tooltip = null;
@@ -252,7 +248,7 @@ async function waitForMetricBannerAndInject(ytdStats, cagrStats, timeoutMs = 100
   return new Promise((resolve) => {
     function check() {
       const banner = findMetricBanner();
-      const grid = banner ? (banner.classList.contains('grid') ? banner : banner.querySelector('.grid')) : null;
+      const grid = getMetricGrid(banner);
       const hasCumulativeReturn = grid && Array.from(grid.children).some(
         child => child.textContent.includes('Cumulative Return')
       );
