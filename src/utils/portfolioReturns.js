@@ -13,6 +13,7 @@ import {
   calculateActiveCagr,
   injectActiveCagrWithTooltip,
   injectActiveCagrLoadingPlaceholder,
+  waitForMetricBanner,
   getMinCagrDays,
   setMinCagrDays,
 } from "./portfolioCAGR.js";
@@ -172,6 +173,48 @@ function getLastNativeElement(grid) {
   return null;
 }
 
+function appendYtdStat(grid, wrapper) {
+  const lastNative = getLastNativeElement(grid);
+  const existingCagr = grid.querySelector('.composer-cagr-stat');
+  if (existingCagr) {
+    grid.insertBefore(wrapper, existingCagr);
+  } else if (lastNative && lastNative.nextSibling) {
+    grid.insertBefore(wrapper, lastNative.nextSibling);
+  } else {
+    grid.appendChild(wrapper);
+  }
+}
+
+function injectYtdTile(grid, banner, { loading = false } = {}) {
+  if (!grid || grid.querySelector('.composer-ytd-stat')) return;
+
+  const isNewLayout = isNewPortfolioStatsLayout(banner);
+  const { wrapper, valueEl } = createStatTile('YTD Return', {
+    extraClass: 'composer-ytd-stat',
+    isNewLayout,
+  });
+  if (loading) {
+    valueEl.style.opacity = '0.5';
+    valueEl.textContent = 'Loading...';
+  }
+  appendYtdStat(grid, wrapper);
+}
+
+export function injectYtdLoadingPlaceholder() {
+  const banner = findMetricBanner();
+  if (banner) {
+    const grid = getMetricGrid(banner);
+    injectYtdTile(grid, banner, { loading: true });
+    return;
+  }
+
+  waitForMetricBanner().then((retryBanner) => {
+    if (!retryBanner) return;
+    const grid = getMetricGrid(retryBanner);
+    injectYtdTile(grid, retryBanner, { loading: true });
+  });
+}
+
 function injectYtdReturnWithTooltip({
   ytdReturn,
   ...stats
@@ -197,6 +240,7 @@ function injectYtdReturnWithTooltip({
     isNewLayout,
   });
   wrapper.style.cursor = 'pointer';
+  valueDiv.style.opacity = '';
   valueDiv.textContent = `${(ytdReturn * 100).toFixed(2)}%`;
 
   let isOverYtd = false;
@@ -238,15 +282,7 @@ function injectYtdReturnWithTooltip({
     }, 150);
   });
 
-  const lastNative = getLastNativeElement(grid);
-  const existingCagr = grid.querySelector('.composer-cagr-stat');
-  if (existingCagr) {
-    grid.insertBefore(wrapper, existingCagr);
-  } else if (lastNative && lastNative.nextSibling) {
-    grid.insertBefore(wrapper, lastNative.nextSibling);
-  } else {
-    grid.appendChild(wrapper);
-  }
+  appendYtdStat(grid, wrapper);
 }
 
 async function waitForMetricBannerAndInject(ytdStats, cagrStats, timeoutMs = 10000) {
@@ -287,10 +323,17 @@ export async function logPortfolioReturns() {
   const enableYtdReturns = result?.enableYtdReturns ?? true;
   const enableCagrReturns = result?.enableCagrReturns ?? false;
 
+  if (enableYtdReturns) {
+    injectYtdLoadingPlaceholder();
+  }
+
   const { token, sessionId, account } = await getTokenAndAccount();
   const history = await fetchPortfolioHistory(account, token, sessionId);
   if (!history || !history.epoch_ms || !history.series) {
     log("No portfolio history found");
+    if (enableYtdReturns) {
+      document.querySelectorAll('.composer-ytd-stat').forEach(el => el.remove());
+    }
     return;
   }
 
